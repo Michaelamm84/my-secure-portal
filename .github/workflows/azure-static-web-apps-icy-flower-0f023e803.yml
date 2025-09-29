@@ -19,6 +19,18 @@ jobs:
         with:
           submodules: true
           lfs: false
+
+      # ---------------- New Step 2: Security Checks ----------------
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint (Static Code Analysis)
+        run: npx eslint src/ || true  # prevents build failure for lint warnings
+
+      - name: Run npm audit (Dependency Scanning)
+        run: npm audit --audit-level=moderate || true  # prevents build failure for vulnerabilities
+      # -------------------------------------------------------------
+
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -27,7 +39,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
-          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "/" # App source code path
           api_location: "" # Api source code path - optional
           output_location: "build" # Built app content directory - optional
