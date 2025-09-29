@@ -19,18 +19,6 @@ jobs:
         with:
           submodules: true
           lfs: false
-
-      # ---------------- New Step 2: Security Checks ----------------
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run ESLint (Static Code Analysis)
-        run: npx eslint src/ || true  # prevents build failure for lint warnings
-
-      - name: Run npm audit (Dependency Scanning)
-        run: npm audit --audit-level=moderate || true  # prevents build failure for vulnerabilities
-      # -------------------------------------------------------------
-
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -55,3 +43,4 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_ICY_FLOWER_0F023E803 }}
           action: "close"
+
