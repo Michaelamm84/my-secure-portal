@@ -6,24 +6,39 @@ export default function Account() {
   const [form, setForm] = useState({ email:"", password:"" });
   const [errors, setErrors] = useState([]);
   const [ok, setOk] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(()=>{
-    const c = currentUser();
-    setU(c);
-    setForm({ email: c?.email ?? "", password:"" });
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      const user = await currentUser();
+      if (!mounted) return;
+      setU(user);
+      setForm({ email: user?.email ?? "", password:"" });
+      setLoading(false);
+    })();
+    return ()=> { mounted = false; };
   },[]);
 
   const onChange = e => setForm(s=>({...s,[e.target.name]: e.target.value}));
 
-  function onSubmit(e) {
-    e.preventDefault(); setErrors([]); setOk("");
-    // TODO(DB): replace updateProfile with real secured API
-    const res = updateProfile({ email: form.email, password: form.password || undefined });
-    if (res.ok) setOk("Profile updated.");
-    else setErrors(res.errors ?? ["Update failed"]);
+  async function onSubmit(e) {
+    e.preventDefault(); setErrors([]); setOk(""); setSaving(true);
+    try {
+      const res = await updateProfile({ email: form.email, password: form.password || undefined });
+      if (res.ok) setOk("Profile updated.");
+      else setErrors(res.errors ?? [res.message ?? "Update failed"]);
+    } catch (err) {
+      setErrors([err.message || "Update error"]);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  if (!u) return <div className="card">Loading…</div>;
+  if (loading) return <div className="card">Loading…</div>;
+  if (!u) return <div className="card">Not authenticated</div>;
 
   return (
     <>
@@ -34,13 +49,13 @@ export default function Account() {
 
         <form onSubmit={onSubmit} className="row">
           <label className="label">Full Name</label>
-          <input className="input" value={u.fullName} readOnly />
+          <input className="input" value={u.fullName || u.username || ""} readOnly />
 
           <label className="label">ID Number</label>
-          <input className="input" value={u.idNumber} readOnly />
+          <input className="input" value={u.idNumber || ""} readOnly />
 
           <label className="label">Account Number</label>
-          <input className="input" value={u.accountNumber} readOnly />
+          <input className="input" value={u.accountNumber || ""} readOnly />
 
           <label className="label">Email</label>
           <input className="input" name="email" value={form.email} onChange={onChange} required />
@@ -48,7 +63,7 @@ export default function Account() {
           <label className="label">Change Password (optional)</label>
           <input className="input" type="password" name="password" value={form.password} onChange={onChange} />
 
-          <button className="btn btn-primary" type="submit">Save Changes</button>
+          <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</button>
         </form>
       </div>
     </>

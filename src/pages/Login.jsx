@@ -6,19 +6,25 @@ export default function Login() {
   const nav = useNavigate();
   const [form, setForm] = useState({ username:"", accountNumber:"", password:"" });
   const [errors, setErrors] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   const onChange = e => setForm(s=>({...s,[e.target.name]: e.target.value}));
 
   async function onSubmit(e) {
     e.preventDefault();
     setErrors([]);
-
-    // TODO(DB): replace login(form) with a real POST /login call
-    const res = login(form);
-    if (res.ok) {
-      nav("/dashboard");
-    } else {
-      setErrors(res.errors ?? ["Login failed"]);
+    setLoading(true);
+    try {
+      const res = await login(form);
+      if (res.ok) {
+        nav("/dashboard");
+      } else {
+        setErrors(res.errors ?? [res.message || "Login failed"]);
+      }
+    } catch (err) {
+      setErrors([err.message || "Login error"]);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -60,7 +66,7 @@ export default function Login() {
         />
 
         <div style={{display:"flex", gap:8, marginTop:6}}>
-          <button className="btn btn-primary" type="submit">Log In</button>
+          <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? "Signing in..." : "Log In"}</button>
           <Link className="btn btn-ghost" to="/register">Register</Link>
         </div>
       </form>

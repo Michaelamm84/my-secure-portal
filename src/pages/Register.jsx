@@ -15,34 +15,40 @@ export default function Register() {
   });
   const [errors, setErrors] = useState([]);
   const [ok, setOk] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const onChange = (e) => {
     const { name, type, checked, value } = e.target;
     setForm((s) => ({ ...s, [name]: type === "checkbox" ? checked : value }));
   };
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
-    setErrors([]);
-    setOk("");
+    setErrors([]); setOk(""); setLoading(true);
 
-    // Basic client checks (server will validate later)
     if (form.password !== form.confirmPassword) {
       setErrors(["Passwords do not match"]);
+      setLoading(false);
       return;
     }
     if (!form.consent) {
       setErrors(["Please accept consent"]);
+      setLoading(false);
       return;
     }
 
-    // TODO(DB): replace register(form) with real POST /register
-    const res = register(form);
-    if (res.ok) {
-      setOk("Registered. Redirecting to login…");
-      setTimeout(() => nav("/login"), 700);
-    } else {
-      setErrors(res.errors ?? ["Registration failed"]);
+    try {
+      const res = await register(form);
+      if (res.ok) {
+        setOk("Registered. Redirecting to login…");
+        setTimeout(() => nav("/login"), 700);
+      } else {
+        setErrors(res.errors ?? [res.message || "Registration failed"]);
+      }
+    } catch (err) {
+      setErrors([err.message || "Registration error"]);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -69,7 +75,7 @@ export default function Register() {
         <div className="grid">
           <div className="col-6">
             <label className="label">Password</label>
-            <input className="input" type="password" name="password" value={form.password} onChange={onChange} required />
+            <input className="input" type="password" name="password" value={form.password} onChange={onChange} required placeholder="More than 10 characters" />
           </div>
           <div className="col-6">
             <label className="label">Confirm Password</label>
@@ -83,7 +89,7 @@ export default function Register() {
         </label>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-primary" type="submit">Create Account</button>
+          <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? "Creating..." : "Create Account"}</button>
           <Link className="btn btn-ghost" to="/login">Back to Login</Link>
         </div>
       </form>
