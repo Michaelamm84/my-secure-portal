@@ -1,6 +1,5 @@
-// ===============================
+
 // my-secure-portal/server.js
-// ===============================
 
 require("dotenv").config();
 const express = require("express");
@@ -8,7 +7,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcryptjs"); 
+const helmet = require("helmet");
+const { body, validationResult } = require("express-validator");
 
 // ===============================
 // CONFIG
@@ -18,14 +19,22 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
+const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
 
 // ===============================
 // MIDDLEWARE
 // ===============================
 
+app.use(helmet()); // add security headers
 app.use(express.json());
 app.use(cors());
 app.use(rateLimit({ windowMs: 60 * 1000, max: 20 }));
+
+// Simple request logger (don't log sensitive info)
+app.use((req, _res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
+  next();
+});
 
 // ===============================
 // DATABASE CONNECTION
@@ -40,10 +49,9 @@ mongoose
 // MODELS
 // ===============================
 
-// Example User schema
 const userSchema = new mongoose.Schema({
-  username: String,
-  email: String,
+  username: { type: String, index: true },
+  email: { type: String, index: true },
   password: String,
   accountNumber: String,
   createdAt: { type: Date, default: Date.now },
@@ -116,17 +124,43 @@ app.get("/", (req, res) => {
 });
 
 // --- Register ---
-app.post("/register", async (req, res) => {
+// validations:
+//   username: required, min 3 chars
+//   email: required, valid email
+//   password: required, min 8 chars
+//   accountNumber: optional, alphanumeric between 4-20
+const registerValidators = [
+  body("username")
+    .trim()
+    .isLength({ min: 3 })
+    .withMessage("username must be at least 3 characters"),
+  body("email").trim().isEmail().withMessage("invalid email").normalizeEmail(),
+  body("password")
+    .isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters"),
+  body("accountNumber")
+    .optional()
+    .trim()
+    .isAlphanumeric()
+    .isLength({ min: 4, max: 20 })
+    .withMessage("accountNumber must be 4-20 alphanumeric characters"),
+];
+
+app.post("/register", registerValidators, async (req, res) => {
+  // Validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ ok: false, errors: errors.array() });
+  }
+
   try {
     const { username, email, password, accountNumber } = req.body;
-    if (!username || !email || !password)
-      return res.status(400).json({ message: "Missing required fields" });
 
     const existing = await User.findOne({ email });
     if (existing)
       return res.status(400).json({ message: "User already exists" });
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
     const user = await User.create({
       username,
       email,
@@ -142,15 +176,22 @@ app.post("/register", async (req, res) => {
 });
 
 // --- Login (accepts email OR username, optional accountNumber check) ---
-app.post("/login", async (req, res) => {
+// validations: password required, identifier presence checked in handler
+const loginValidators = [body("password").exists().withMessage("password required")];
+
+app.post("/login", loginValidators, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ ok: false, errors: errors.array() });
+  }
+
   try {
-    // Accept either { email, password } or { username, password } from client
     const { email, username, accountNumber, password } = req.body;
 
     // Minimal debug info (DO NOT log passwords)
     console.log("[/login] attempt:", {
       identifier: email ? email : username ? username : "<missing>",
-      accountNumber: accountNumber ? accountNumber : "<not-provided>"
+      accountNumber: accountNumber ? accountNumber : "<not-provided>",
     });
 
     const identifier = email || username;
@@ -158,9 +199,8 @@ app.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Missing credentials" });
     }
 
-    // Find by email OR username
     const user = await User.findOne({
-      $or: [{ email: identifier }, { username: identifier }]
+      $or: [{ email: identifier }, { username: identifier }],
     });
 
     if (!user) {
@@ -168,38 +208,33 @@ app.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // If client supplied accountNumber, verify it matches
     if (accountNumber && user.accountNumber && user.accountNumber !== accountNumber) {
       console.warn("[/login] accountNumber mismatch for user:", identifier);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Verify password
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       console.warn("[/login] invalid password for user:", identifier);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Sign tokens
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
 
-    // Save refresh token to DB
     await RefreshToken.create({
       token: refreshToken,
       userId: user._id,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
-    // Success — return token and user info
     return res.json({
       ok: true,
       token: accessToken,
       refreshToken,
       userId: user._id,
       username: user.username,
-      email: user.email
+      email: user.email,
     });
   } catch (err) {
     console.error("Login error:", err && err.stack ? err.stack : err);
@@ -249,7 +284,20 @@ app.get("/payments", requireAuth, async (req, res) => {
 });
 
 // --- Create Payment (Protected) ---
-app.post("/payments", requireAuth, async (req, res) => {
+// validate amount and optional description
+const createPaymentValidators = [
+  body("amount")
+    .exists()
+    .withMessage("amount is required")
+    .isFloat({ gt: 0 })
+    .withMessage("amount must be a number greater than 0"),
+  body("description").optional().trim().isString(),
+];
+
+app.post("/payments", requireAuth, createPaymentValidators, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ ok: false, errors: errors.array() });
+
   try {
     const userId = req.user.userId;
     const { amount, description } = req.body;
@@ -280,14 +328,28 @@ app.get("/me", requireAuth, async (req, res) => {
 });
 
 // PATCH /me - update basic profile fields (email, password)
-app.patch("/me", requireAuth, async (req, res) => {
+// validate optional fields
+const patchMeValidators = [
+  body("email").optional().isEmail().normalizeEmail().withMessage("invalid email"),
+  body("password")
+    .optional()
+    .isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters"),
+];
+
+app.patch("/me", requireAuth, patchMeValidators, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ ok: false, errors: errors.array() });
+
   try {
     const userId = req.user.userId || req.user.id;
     const { email, password } = req.body;
     const update = {};
     if (email) update.email = email;
-    if (password) update.password = await bcrypt.hash(password, 10);
-    const user = await User.findByIdAndUpdate(userId, update, { new: true }).select("-password -__v");
+    if (password) update.password = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+    const user = await User.findByIdAndUpdate(userId, update, { new: true }).select(
+      "-password -__v"
+    );
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json({ ok: true, user });
   } catch (err) {
