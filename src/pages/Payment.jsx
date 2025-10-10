@@ -23,7 +23,8 @@ export default function Payment() {
     if (!/^[A-Za-z0-9 ,.'-]{2,100}$/.test(form.payeeName)) return setErrors(["Invalid payee name"]);
     if (!/^[A-Za-z0-9]{6,34}$/.test(form.payeeAccountNumber)) return setErrors(["Invalid account number"]);
     if (!/^[A-Za-z]{6}[A-Za-z0-9]{2}([A-Za-z0-9]{3})?$/.test(form.swiftBic)) return setErrors(["Invalid SWIFT/BIC"]);
-    if (form.reference && !/^[A-Za-z0-9 ,.'\-]{0,35}$/.test(form.reference)) return setErrors(["Invalid reference"]);
+    if (form.reference && !/^[A-Za-z0-9 ,.'-]{0,35}$/.test(form.reference)) return setErrors(["Invalid reference"]);
+
 
     // TODO(DB): replace createPayment with real POST /payments
     const res = createPayment({ ...form, amount:Number(form.amount) });
