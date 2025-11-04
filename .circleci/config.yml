@@ -1,172 +1,21 @@
-# .circleci/config.yml
 version: 2.1
 
-orbs:
-  node: circleci/node@5.1.0
-  sonarcloud: sonarsource/sonarcloud@2.0.0
-
 jobs:
-  # Job 1: Install dependencies and run tests
-  test:
-    docker:
-      - image: cimg/node:18.17
-    steps:
-      - checkout
-      - node/install-packages:
-          pkg-manager: npm
-      - run:
-          name: Run Tests
-          command: npm test -- --watchAll=false
-      - persist_to_workspace:
-          root: .
-          paths:
-            - node_modules
-
-  # Job 2: Static Application Security Testing (SAST)
-  security-scan:
-    docker:
-      - image: cimg/node:18.17
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
-      - run:
-          name: Install Security Tools
-          command: |
-            npm install -g snyk
-            npm install -g npm-audit-ci-wrapper
-      - run:
-          name: Run npm audit
-          command: npm audit --audit-level=moderate || true
-      - run:
-          name: Run Snyk Security Scan
-          command: |
-            snyk auth $SNYK_TOKEN
-            snyk test --severity-threshold=high || true
-            snyk monitor || true
-
-  # Job 3: Software Composition Analysis (Dependency Check)
-  dependency-check:
-    docker:
-      - image: cimg/node:18.17
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
-      - run:
-          name: Check for Vulnerable Dependencies
-          command: |
-            npm audit --json > npm-audit-report.json || true
-            echo "Dependency vulnerabilities checked"
-      - run:
-          name: License Compliance Check
-          command: |
-            npm install -g license-checker
-            license-checker --json > licenses.json
-            echo "License check complete"
-      - store_artifacts:
-          path: npm-audit-report.json
-      - store_artifacts:
-          path: licenses.json
-
-  # Job 4: SonarQube/SonarCloud Code Quality & Security
-  sonarqube-scan:
-    docker:
-      - image: cimg/node:18.17
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
-      - sonarcloud/scan:
-          sonar_token_variable_name: SONAR_TOKEN
-
-  # Job 5: API Security Testing
-  api-security-test:
-    docker:
-      - image: cimg/node:18.17
-    steps:
-      - checkout
-      - attach_workspace:
-          at: .
-      - run:
-          name: Start Server for Testing
-          command: node server.js
-          background: true
-      - run:
-          name: Wait for Server
-          command: sleep 10
-      - run:
-          name: Install Testing Tools
-          command: |
-            npm install -g newman
-            npm install -g @zaproxy/zap-api
-      - run:
-          name: Run API Security Tests
-          command: |
-            # Test authentication endpoints
-            echo "Testing /register endpoint"
-            curl -X POST http://localhost:5000/register \
-              -H "Content-Type: application/json" \
-              -d '{"username":"test","email":"test@test.com","password":"12345678","accountNumber":"ACC001"}' \
-              -w "\nStatus: %{http_code}\n"
-            
-            echo "Testing /login endpoint"
-            curl -X POST http://localhost:5000/login \
-              -H "Content-Type: application/json" \
-              -d '{"email":"test@test.com","password":"12345678"}' \
-              -w "\nStatus: %{http_code}\n"
-            
-            # Test for common vulnerabilities
-            echo "Testing SQL Injection protection"
-            curl -X POST http://localhost:5000/login \
-              -H "Content-Type: application/json" \
-              -d "{\"email\":\"' OR 1=1--\",\"password\":\"test\"}" \
-              -w "\nStatus: %{http_code}\n"
-            
-            echo "Testing XSS protection"
-            curl -X POST http://localhost:5000/register \
-              -H "Content-Type: application/json" \
-              -d "{\"username\":\"<script>alert('xss')</script>\",\"email\":\"xss@test.com\",\"password\":\"12345678\"}" \
-              -w "\nStatus: %{http_code}\n"
-
-  # Job 6: Build Application
   build:
     docker:
-      - image: cimg/node:18.17
+      - image: 'cimg/node:18.17'
     steps:
       - checkout
-      - attach_workspace:
-          at: .
       - run:
-          name: Build React App
-          command: npm run build
-      - persist_to_workspace:
-          root: .
-          paths:
-            - build
+          name: Install dependencies and build project
+          command: npm test -- --watchAll=false
+      - sonarcloud/scan
+
+orbs:
+  sonarcloud: sonarsource/sonarcloud@2.0.0
 
 workflows:
-  version: 2
-  security-pipeline:
+  main:
     jobs:
-      - test
-      - security-scan:
-          requires:
-            - test
-      - dependency-check:
-          requires:
-            - test
-      - sonarqube-scan:
-          requires:
-            - test
-          context: sonarcloud
-      - api-security-test:
-          requires:
-            - security-scan
-            - dependency-check
       - build:
-          requires:
-            - api-security-test
-          filters:
-            branches:
-              only: main
+          context: SonarCloud

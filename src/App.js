@@ -1,10 +1,8 @@
-// src/App.js
-// App.js - Secure Banking Portal Frontend
+// App.js - Secure Banking Portal Frontend (Simplified)
 import React, { useState, useEffect } from "react";
-import DOMPurify from "dompurify";
 import "./App.css";
 
-const API_URL = process.env.REACT_APP_API_URL || "https://localhost:5000";
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 function App() {
   const [isEmployee, setIsEmployee] = useState(false);
@@ -26,39 +24,40 @@ function App() {
 
   const [errors, setErrors] = useState({});
 
-  // RegEx Whitelist Patterns
+  // RegEx Whitelist Patterns (Optimized to prevent ReDoS attacks)
   const patterns = {
     username: /^[a-zA-Z0-9_]{3,20}$/,
-    email: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+    email: /^[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}\.[a-zA-Z]{2,63}$/,
     accountNumber: /^[A-Z0-9]{4,20}$/,
-    password: /^.{8,}$/,
-    amount: /^\d+(\.\d{1,2})?$/,
-    swiftCode: /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/,
+    password: /^[\s\S]{8,128}$/,
+    amount: /^\d{1,10}(?:\.\d{1,2})?$/,
+    swiftCode: /^[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/,
   };
 
-  // Input sanitization and validation
+  // Simple sanitization (removes HTML tags and special chars)
   const sanitizeInput = (name, value) => {
-    // Remove any HTML tags
-    let sanitized = DOMPurify.sanitize(value, { ALLOWED_TAGS: [] });
+    // Remove HTML tags
+    let sanitized = value.replace(/<[^>]*>/g, '');
     
     // Trim whitespace
     sanitized = sanitized.trim();
     
-    // Validate against pattern
-    if (patterns[name] && !patterns[name].test(sanitized)) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: `Invalid ${name} format`
-      }));
-      return "";
+    // Validate against pattern if exists
+    if (patterns[name]) {
+      if (!patterns[name].test(sanitized)) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: `Invalid ${name} format`
+        }));
+        return sanitized; // Return sanitized but invalid
+      }
+      // Clear error if valid
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
     }
-    
-    // Clear error if valid
-    setErrors(prev => {
-      const newErrors = { ...prev };
-      delete newErrors[name];
-      return newErrors;
-    });
     
     return sanitized;
   };
@@ -95,7 +94,7 @@ function App() {
         localStorage.setItem("token", data.token);
         localStorage.setItem("refreshToken", data.refreshToken);
         
-        // Fetch payments if logged in
+        // Fetch payments if customer
         if (!isEmployee) {
           fetchPayments(data.token);
         }
@@ -113,6 +112,13 @@ function App() {
     
     if (isEmployee) {
       alert("Employees cannot register. Contact administrator.");
+      return;
+    }
+
+    // Validate all fields
+    const hasErrors = Object.keys(errors).length > 0;
+    if (hasErrors) {
+      alert("Please fix form errors before submitting");
       return;
     }
 
@@ -168,6 +174,17 @@ function App() {
   const handlePayment = async (e) => {
     e.preventDefault();
 
+    // Validate amount and SWIFT code
+    if (!patterns.amount.test(formData.amount)) {
+      alert("Invalid amount format");
+      return;
+    }
+
+    if (!patterns.swiftCode.test(formData.swiftCode)) {
+      alert("Invalid SWIFT code format (e.g., ABCDEF2A)");
+      return;
+    }
+
     try {
       const response = await fetch(`${API_URL}/payments`, {
         method: "POST",
@@ -215,7 +232,6 @@ function App() {
     const savedToken = localStorage.getItem("token");
     if (savedToken) {
       setToken(savedToken);
-      // Verify token is still valid
       fetch(`${API_URL}/me`, {
         headers: {
           Authorization: `Bearer ${savedToken}`,
@@ -243,13 +259,37 @@ function App() {
         <div className="portal-toggle">
           <button
             className={!isEmployee ? "active" : ""}
-            onClick={() => setIsEmployee(false)}
+            onClick={() => {
+              setIsEmployee(false);
+              setFormData({
+                username: "",
+                email: "",
+                accountNumber: "",
+                password: "",
+                amount: "",
+                currency: "ZAR",
+                swiftCode: "",
+                description: "",
+              });
+            }}
           >
             Customer Portal
           </button>
           <button
             className={isEmployee ? "active" : ""}
-            onClick={() => setIsEmployee(true)}
+            onClick={() => {
+              setIsEmployee(true);
+              setFormData({
+                username: "",
+                email: "",
+                accountNumber: "",
+                password: "",
+                amount: "",
+                currency: "ZAR",
+                swiftCode: "",
+                description: "",
+              });
+            }}
           >
             Employee Portal
           </button>
@@ -343,7 +383,7 @@ function App() {
                 <h3>Register New Account</h3>
                 
                 <div className="form-group">
-                  <label>Username</label>
+                  <label>Username (3-20 alphanumeric)</label>
                   <input
                     type="text"
                     name="username"
@@ -352,6 +392,7 @@ function App() {
                     onChange={handleChange}
                     required
                   />
+                  {errors.username && <span className="error">{errors.username}</span>}
                 </div>
 
                 <div className="form-group">
@@ -364,10 +405,11 @@ function App() {
                     onChange={handleChange}
                     required
                   />
+                  {errors.email && <span className="error">{errors.email}</span>}
                 </div>
 
                 <div className="form-group">
-                  <label>Account Number</label>
+                  <label>Account Number (4-20 alphanumeric)</label>
                   <input
                     type="text"
                     name="accountNumber"
@@ -376,10 +418,13 @@ function App() {
                     onChange={handleChange}
                     required
                   />
+                  {errors.accountNumber && (
+                    <span className="error">{errors.accountNumber}</span>
+                  )}
                 </div>
 
                 <div className="form-group">
-                  <label>Password</label>
+                  <label>Password (Min 8 characters)</label>
                   <input
                     type="password"
                     name="password"
@@ -388,6 +433,7 @@ function App() {
                     onChange={handleChange}
                     required
                   />
+                  {errors.password && <span className="error">{errors.password}</span>}
                 </div>
 
                 <button type="submit" className="btn-secondary">
@@ -423,6 +469,7 @@ function App() {
                         onChange={handleChange}
                         required
                       />
+                      {errors.amount && <span className="error">{errors.amount}</span>}
                     </div>
 
                     <div className="form-group">
@@ -441,7 +488,7 @@ function App() {
                   </div>
 
                   <div className="form-group">
-                    <label>SWIFT Code</label>
+                    <label>SWIFT Code (e.g., ABCDEF2A)</label>
                     <input
                       type="text"
                       name="swiftCode"
