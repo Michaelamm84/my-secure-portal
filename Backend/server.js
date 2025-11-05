@@ -1,5 +1,5 @@
 
-// my-secure-portal/server.js
+// my-secure-portal/server.js - FIXED VERSION
 
 require("dotenv").config();
 const express = require("express");
@@ -42,7 +42,11 @@ app.use((req, _res, next) => {
 
 mongoose
   .connect(MONGODB_URI)
-  .then(() => console.log("✅ Connected to MongoDB"))
+  .then(() => {
+    console.log("✅ Connected to MongoDB");
+    // Seed employees after database connection
+    seedEmployees();
+  })
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ===============================
@@ -54,6 +58,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, index: true },
   password: String,
   accountNumber: String,
+  role: { type: String, enum: ['customer', 'employee'], default: 'customer' },
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -62,6 +67,15 @@ const paymentSchema = new mongoose.Schema({
   amount: Number,
   date: Date,
   description: String,
+  status: { 
+    type: String, 
+    enum: ['pending', 'verified', 'rejected', 'submitted'], 
+    default: 'pending' 
+  },
+  verifiedBy: mongoose.Schema.Types.ObjectId,
+  verifiedAt: Date,
+  swiftCode: String,
+  currency: String,
 });
 
 const refreshTokenSchema = new mongoose.Schema({
@@ -75,6 +89,49 @@ const Payment = mongoose.model("Payment", paymentSchema);
 const RefreshToken = mongoose.model("RefreshToken", refreshTokenSchema);
 
 // ===============================
+// SEED EMPLOYEES (Pre-registered accounts)
+// ===============================
+
+const seedEmployees = async () => {
+  try {
+    const employees = [
+      {
+        username: "employee1",
+        email: "employee1@bank.com",
+        password: await bcrypt.hash("SecurePass123!", BCRYPT_SALT_ROUNDS),
+        accountNumber: "EMP001",
+        role: "employee"
+      },
+      {
+        username: "employee2",
+        email: "employee2@bank.com",
+        password: await bcrypt.hash("SecurePass456!", BCRYPT_SALT_ROUNDS),
+        accountNumber: "EMP002",
+        role: "employee"
+      },
+      {
+        username: "employee3",
+        email: "employee3@bank.com",
+        password: await bcrypt.hash("SecurePass789!", BCRYPT_SALT_ROUNDS),
+        accountNumber: "EMP003",
+        role: "employee"
+      }
+    ];
+
+    for (const emp of employees) {
+      const exists = await User.findOne({ email: emp.email });
+      if (!exists) {
+        await User.create(emp);
+        console.log(`✅ Created employee: ${emp.username}`);
+      }
+    }
+    console.log("✅ Employee seed complete");
+  } catch (err) {
+    console.error("❌ Error seeding employees:", err);
+  }
+};
+
+// ===============================
 // AUTH HELPERS
 // ===============================
 
@@ -85,6 +142,7 @@ function signAccessToken(user) {
       email: user.email,
       username: user.username,
       accountNumber: user.accountNumber,
+      role: user.role,
     },
     JWT_SECRET,
     { expiresIn: "15m" }
@@ -114,6 +172,14 @@ function requireAuth(req, res, next) {
   }
 }
 
+// Middleware to check if user is an employee
+function requireEmployee(req, res, next) {
+  if (!req.user || req.user.role !== 'employee') {
+    return res.status(403).json({ message: "Employee access required" });
+  }
+  next();
+}
+
 // ===============================
 // ROUTES
 // ===============================
@@ -123,12 +189,16 @@ app.get("/", (req, res) => {
   res.send("🚀 My Secure Portal API running successfully!");
 });
 
-// --- Register ---
-// validations:
-//   username: required, min 3 chars
-//   email: required, valid email
-//   password: required, min 8 chars
-//   accountNumber: optional, alphanumeric between 4-20
+// ===============================
+// REGISTRATION ENDPOINT - REMOVED FOR PRODUCTION
+// ===============================
+// The /register endpoint has been REMOVED to meet the requirement:
+// "Users are created as no registration process should be possible"
+// Employees are pre-registered via seedEmployees() function
+// Customers must contact the bank to create accounts
+
+// If you need registration for development/testing, uncomment below:
+/*
 const registerValidators = [
   body("username")
     .trim()
@@ -137,7 +207,9 @@ const registerValidators = [
   body("email").trim().isEmail().withMessage("invalid email").normalizeEmail(),
   body("password")
     .isLength({ min: 8 })
-    .withMessage("password must be at least 8 characters"),
+    .withMessage("password must be at least 8 characters")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage("Password must contain uppercase, lowercase, number and special character"),
   body("accountNumber")
     .optional()
     .trim()
@@ -147,7 +219,6 @@ const registerValidators = [
 ];
 
 app.post("/register", registerValidators, async (req, res) => {
-  // Validation errors
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ ok: false, errors: errors.array() });
@@ -166,6 +237,7 @@ app.post("/register", registerValidators, async (req, res) => {
       email,
       password: hashed,
       accountNumber,
+      role: 'customer',
     });
 
     res.json({ ok: true, userId: user._id });
@@ -174,9 +246,65 @@ app.post("/register", registerValidators, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+*/
+
+// ===============================
+// ADMIN-ONLY REGISTRATION (Optional - for creating customer accounts)
+// ===============================
+const adminRegisterValidators = [
+  body("username")
+    .trim()
+    .isLength({ min: 3 })
+    .withMessage("username must be at least 3 characters"),
+  body("email").trim().isEmail().withMessage("invalid email").normalizeEmail(),
+  body("password")
+    .isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage("Password must contain uppercase, lowercase, number and special character"),
+  body("accountNumber")
+    .optional()
+    .trim()
+    .isAlphanumeric()
+    .isLength({ min: 4, max: 20 })
+    .withMessage("accountNumber must be 4-20 alphanumeric characters"),
+  body("role")
+    .optional()
+    .isIn(['customer', 'employee'])
+    .withMessage("role must be customer or employee"),
+];
+
+app.post("/admin/register", requireAuth, requireEmployee, adminRegisterValidators, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ ok: false, errors: errors.array() });
+  }
+
+  try {
+    const { username, email, password, accountNumber, role } = req.body;
+
+    const existing = await User.findOne({ email });
+    if (existing)
+      return res.status(400).json({ message: "User already exists" });
+
+    const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+    const user = await User.create({
+      username,
+      email,
+      password: hashed,
+      accountNumber,
+      role: role || 'customer',
+    });
+
+    console.log(`✅ Employee ${req.user.username} created new user: ${user.username}`);
+    res.json({ ok: true, userId: user._id, message: "User created successfully" });
+  } catch (err) {
+    console.error("Admin register error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // --- Login (accepts email OR username, optional accountNumber check) ---
-// validations: password required, identifier presence checked in handler
 const loginValidators = [body("password").exists().withMessage("password required")];
 
 app.post("/login", loginValidators, async (req, res) => {
@@ -188,7 +316,6 @@ app.post("/login", loginValidators, async (req, res) => {
   try {
     const { email, username, accountNumber, password } = req.body;
 
-    // Minimal debug info (DO NOT log passwords)
     console.log("[/login] attempt:", {
       identifier: email ? email : username ? username : "<missing>",
       accountNumber: accountNumber ? accountNumber : "<not-provided>",
@@ -235,6 +362,7 @@ app.post("/login", loginValidators, async (req, res) => {
       userId: user._id,
       username: user.username,
       email: user.email,
+      role: user.role,
     });
   } catch (err) {
     console.error("Login error:", err && err.stack ? err.stack : err);
@@ -271,7 +399,7 @@ app.post("/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Protected Payments Route ---
+// --- Protected Payments Route (for customers - their own payments) ---
 app.get("/payments", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -283,8 +411,22 @@ app.get("/payments", requireAuth, async (req, res) => {
   }
 });
 
+// --- Employee Route: Get ALL payments for review ---
+app.get("/admin/all-payments", requireAuth, requireEmployee, async (req, res) => {
+  try {
+    const payments = await Payment.find()
+      .populate('userId', 'username email accountNumber')
+      .sort({ date: -1 });
+    
+    console.log(`✅ Employee ${req.user.username} fetched ${payments.length} payments`);
+    res.json({ ok: true, payments });
+  } catch (err) {
+    console.error("Admin payments error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // --- Create Payment (Protected) ---
-// validate amount and optional description
 const createPaymentValidators = [
   body("amount")
     .exists()
@@ -292,6 +434,15 @@ const createPaymentValidators = [
     .isFloat({ gt: 0 })
     .withMessage("amount must be a number greater than 0"),
   body("description").optional().trim().isString(),
+  body("swiftCode")
+    .optional()
+    .trim()
+    .matches(/^[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/)
+    .withMessage("Invalid SWIFT code format"),
+  body("currency")
+    .optional()
+    .isIn(['ZAR', 'USD', 'EUR', 'GBP'])
+    .withMessage("Invalid currency"),
 ];
 
 app.post("/payments", requireAuth, createPaymentValidators, async (req, res) => {
@@ -300,16 +451,68 @@ app.post("/payments", requireAuth, createPaymentValidators, async (req, res) => 
 
   try {
     const userId = req.user.userId;
-    const { amount, description } = req.body;
+    const { amount, description, swiftCode, currency } = req.body;
+    
     const payment = await Payment.create({
       userId,
       amount,
       description,
+      swiftCode,
+      currency,
       date: new Date(),
+      status: 'pending',
     });
+    
+    console.log(`✅ Payment created by user ${req.user.username}: $${amount}`);
     res.json({ ok: true, payment });
   } catch (err) {
     console.error("Create payment error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// --- Verify Payment (Employee Only) ---
+app.patch("/payments/:id/verify", requireAuth, requireEmployee, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: "Invalid status. Must be 'verified' or 'rejected'" });
+    }
+
+    const payment = await Payment.findByIdAndUpdate(
+      id,
+      {
+        status: status === 'verified' ? 'submitted' : 'rejected',
+        verifiedBy: req.user.userId,
+        verifiedAt: new Date(),
+      },
+      { new: true }
+    ).populate('userId', 'username email accountNumber');
+
+    if (!payment) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    console.log(`✅ Payment ${id} ${status} by employee ${req.user.username}`);
+    
+    // Simulate SWIFT submission
+    if (status === 'verified') {
+      console.log(`📤 SWIFT SUBMISSION SIMULATED for payment ${id}`);
+      console.log(`   Amount: ${payment.amount} ${payment.currency}`);
+      console.log(`   SWIFT Code: ${payment.swiftCode}`);
+    }
+
+    res.json({ 
+      ok: true, 
+      payment,
+      message: status === 'verified' 
+        ? "Payment verified and submitted to SWIFT" 
+        : "Payment rejected"
+    });
+  } catch (err) {
+    console.error("Verify payment error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -328,13 +531,14 @@ app.get("/me", requireAuth, async (req, res) => {
 });
 
 // PATCH /me - update basic profile fields (email, password)
-// validate optional fields
 const patchMeValidators = [
   body("email").optional().isEmail().normalizeEmail().withMessage("invalid email"),
   body("password")
     .optional()
     .isLength({ min: 8 })
-    .withMessage("password must be at least 8 characters"),
+    .withMessage("password must be at least 8 characters")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage("Password must contain uppercase, lowercase, number and special character"),
 ];
 
 app.patch("/me", requireAuth, patchMeValidators, async (req, res) => {
@@ -370,4 +574,8 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`📋 Pre-registered employee accounts:`);
+  console.log(`   - username: employee1, password: SecurePass123!, account: EMP001`);
+  console.log(`   - username: employee2, password: SecurePass456!, account: EMP002`);
+  console.log(`   - username: employee3, password: SecurePass789!, account: EMP003`);
 });

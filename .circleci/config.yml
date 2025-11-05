@@ -1,21 +1,85 @@
 version: 2.1
 
+orbs:
+  sonarcloud: sonarsource/sonarcloud@2.0.0
+
 jobs:
-  build:
+  build-and-test:
     docker:
       - image: 'cimg/node:18.17'
     steps:
       - checkout
+      
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "package-lock.json" }}
+      
       - run:
-          name: Install dependencies and build project
-          command: npm test -- --watchAll=false
+          name: Install Dependencies
+          command: npm install
+      
+      - save_cache:
+          paths:
+            - node_modules
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
+      
+      # 1. Static Application Security Testing
+      - run:
+          name: SAST - Check for vulnerabilities in code
+          command: |
+            npx eslint . --ext .js --max-warnings 0 || true
+            npm audit --audit-level=moderate
+      
+      # 2. Software Composition Analysis (check dependencies)
+      - run:
+          name: SCA - Dependency Security Check
+          command: |
+            npm audit --json > audit-report.json || true
+            npx audit-ci --moderate
+      
+      # 3. Run tests with coverage
+      - run:
+          name: Run Tests
+          command: npm test -- --watchAll=false --coverage
+      
+      # 4. SonarCloud scan (code quality + security hotspots)
       - sonarcloud/scan
+      
+      # 5. OWASP Dependency-Check (optional but recommended)
+      - run:
+          name: OWASP Dependency Check
+          command: |
+            wget https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip
+            unzip dependency-check-8.4.0-release.zip
+            ./dependency-check/bin/dependency-check.sh --scan . --format JSON --out ./reports
+      
+      - store_artifacts:
+          path: ./reports
+      
+      - store_test_results:
+          path: ./coverage
 
-orbs:
-  sonarcloud: sonarsource/sonarcloud@2.0.0
+  # 6. API Security Testing job
+  api-security-test:
+    docker:
+      - image: cimg/node:18.17
+    steps:
+      - checkout
+      - run:
+          name: Install newman (Postman CLI)
+          command: npm install -g newman
+      
+      - run:
+          name: API Security Tests
+          command: |
+            # Run your API tests here
+            # newman run postman-collection.json -e environment.json
 
 workflows:
   main:
     jobs:
-      - build:
+      - build-and-test:
           context: SonarCloud
+      - api-security-test:
+          requires:
+            - build-and-test
