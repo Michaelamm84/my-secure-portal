@@ -39,10 +39,21 @@ Run the following command:
 
 npm install
 
+step 3: run the following command to link to SonarQube
+
+sonar-scanner `
+  -D"sonar.organization=michaelamm84" `
+  -D"sonar.projectKey=Michaelamm84_my-secure-portal" `
+  -D"sonar.host.url=https://sonarcloud.io" `
+  -D"sonar.login=$env:SONAR_TOKEN" `
+  -D"sonar.cfamily.compile-commands=./bw-output/compile-commands.json"
+
+  step 4: run command sonar-scanner to run a test 
+
 
 This will install all required packages listed in package.json.
 
-Step 3: Start the Backend Server
+Step 5: Start the Backend Server
 
 In the terminal, navigate to the backend folder:
 
@@ -56,13 +67,7 @@ npm start
 
 Keep this terminal open while the backend server is running.
 
-Step 4: Start the Frontend (React) App
 
-Open a new terminal in the project root (or frontend folder).
-
-Run the frontend server:
-
-npm start
 
 
 The app should open automatically in your browser at:
@@ -72,21 +77,4 @@ http://localhost:3000
 
 Now you have both backend and frontend running locally.
 
-Step 5: Access the Live App (Optional)
 
-If you want to see the app online, you can visit:
-
-https://icy-flower-0f023e803.2.azurestaticapps.net/
-
-Project Structure
-
-Here’s a simplified view of the project:
-
-my-app/
-├─ backend/        # Backend server code
-├─ frontend/       # React frontend code
-│  ├─ public/      # Static files
-│  ├─ src/         # React components
-│  └─ App.js       # Main React app file
-├─ package.json     # Project dependencies
-└─ README.md
