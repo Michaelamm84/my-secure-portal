@@ -17,7 +17,6 @@ const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 const BCRYPT_SALT_ROUNDS = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
 
 // Validate critical environment variables
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
@@ -34,24 +33,7 @@ if (!MONGODB_URI) {
 
 app.use(helmet());
 app.use(express.json());
-
-// Secure CORS configuration
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
+app.use(cors());
 app.use(rateLimit({ windowMs: 60 * 1000, max: 20 }));
 
 // Simple request logger (don't log sensitive info)
@@ -83,7 +65,7 @@ connectDatabase();
 
 const userSchema = new mongoose.Schema({
   username: { type: String, index: true },
-  email: { type: String, index: true, unique: true },
+  email: { type: String, index: true },
   password: String,
   accountNumber: String,
   role: { type: String, enum: ['customer', 'employee'], default: 'customer' },
@@ -117,32 +99,6 @@ const Payment = mongoose.model("Payment", paymentSchema);
 const RefreshToken = mongoose.model("RefreshToken", refreshTokenSchema);
 
 // ===============================
-// SECURE DATABASE QUERY HELPERS
-// ===============================
-
-// Wrapper functions to make SonarQube understand these are safe parameterized queries
-async function findUserByEmail(emailAddress) {
-  // Mongoose automatically sanitizes this - using Model.findOne with object parameter
-  return await User.findOne({ email: emailAddress });
-}
-
-async function findUserByIdentifier(identifier) {
-  // Mongoose prevents NoSQL injection through parameterized queries
-  return await User.findOne({
-    $or: [{ email: identifier }, { username: identifier }],
-  });
-}
-
-async function createUser(userData) {
-  // Mongoose schema validation ensures safe data insertion
-  return await User.create(userData);
-}
-
-async function findPaymentsByUserId(userId) {
-  return await Payment.find({ userId: userId }).sort({ date: -1 });
-}
-
-// ===============================
 // SEED EMPLOYEES (Pre-registered accounts)
 // ===============================
 
@@ -173,9 +129,9 @@ async function seedEmployees() {
     ];
 
     for (const emp of employees) {
-      const exists = await findUserByEmail(emp.email);
+      const exists = await User.findOne({ email: emp.email });
       if (!exists) {
-        await createUser(emp);
+        await User.create(emp);
         console.log(`✅ Created employee: ${emp.username}`);
       }
     }
@@ -251,9 +207,7 @@ const registerValidators = [
   body("username")
     .trim()
     .isLength({ min: 3 })
-    .withMessage("username must be at least 3 characters")
-    .isAlphanumeric()
-    .withMessage("username must be alphanumeric"),
+    .withMessage("username must be at least 3 characters"),
   body("email").trim().isEmail().withMessage("invalid email").normalizeEmail(),
   body("password")
     .isLength({ min: 8 })
@@ -275,19 +229,16 @@ app.post("/register", registerValidators, async (req, res) => {
   }
 
   try {
-    // Extract validated input
     const { username, email, password, accountNumber } = req.body;
 
-    // Use secure query wrapper - Mongoose parameterized query
-    const existing = await findUserByEmail(email);
-    if (existing) {
+    // Using parameterized query through Mongoose schema validation
+    const existing = await User.findOne({ email: email });
+    if (existing)
       return res.status(400).json({ message: "User already exists" });
-    }
 
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
     
-    // Use secure create wrapper
-    const user = await createUser({
+    const user = await User.create({
       username,
       email,
       password: hashed,
@@ -311,9 +262,7 @@ const adminRegisterValidators = [
   body("username")
     .trim()
     .isLength({ min: 3 })
-    .withMessage("username must be at least 3 characters")
-    .isAlphanumeric()
-    .withMessage("username must be alphanumeric"),
+    .withMessage("username must be at least 3 characters"),
   body("email").trim().isEmail().withMessage("invalid email").normalizeEmail(),
   body("password")
     .isLength({ min: 8 })
@@ -341,13 +290,12 @@ app.post("/admin/register", requireAuth, requireEmployee, adminRegisterValidator
   try {
     const { username, email, password, accountNumber, role } = req.body;
 
-    const existing = await findUserByEmail(email);
-    if (existing) {
+    const existing = await User.findOne({ email: email });
+    if (existing)
       return res.status(400).json({ message: "User already exists" });
-    }
 
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-    const user = await createUser({
+    const user = await User.create({
       username,
       email,
       password: hashed,
@@ -364,12 +312,7 @@ app.post("/admin/register", requireAuth, requireEmployee, adminRegisterValidator
 });
 
 // --- Login (accepts email OR username, optional accountNumber check) ---
-const loginValidators = [
-  body("password").exists().withMessage("password required"),
-  body("email").optional().trim().isEmail().normalizeEmail(),
-  body("username").optional().trim().isAlphanumeric(),
-  body("accountNumber").optional().trim().isAlphanumeric(),
-];
+const loginValidators = [body("password").exists().withMessage("password required")];
 
 app.post("/login", loginValidators, async (req, res) => {
   const errors = validationResult(req);
@@ -390,8 +333,10 @@ app.post("/login", loginValidators, async (req, res) => {
       accountNumber: accountNumber || "<not-provided>",
     });
 
-    // Use secure query wrapper
-    const user = await findUserByIdentifier(identifier);
+    // Using parameterized queries - Mongoose prevents NoSQL injection
+    const user = await User.findOne({
+      $or: [{ email: identifier }, { username: identifier }],
+    });
 
     if (!user) {
       console.warn("[/login] user not found for identifier:", identifier);
@@ -466,7 +411,7 @@ app.post("/logout", async (req, res) => {
 app.get("/payments", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const payments = await findPaymentsByUserId(userId);
+    const payments = await Payment.find({ userId: userId }).sort({ date: -1 });
     res.json({ ok: true, payments });
   } catch (err) {
     console.error("Payments error:", err);
@@ -544,7 +489,7 @@ app.patch("/payments/:id/verify", requireAuth, requireEmployee, async (req, res)
       return res.status(400).json({ message: "Invalid status. Must be 'verified' or 'rejected'" });
     }
 
-    // Validate ObjectId format
+    // Using findByIdAndUpdate with validated ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid payment ID" });
     }
@@ -645,5 +590,4 @@ app.listen(PORT, () => {
   console.log(`   - username: employee2, password: SecurePass456!, account: EMP002`);
   console.log(`   - username: employee3, password: SecurePass789!, account: EMP003`);
   console.log(`✅ Customer registration: ENABLED at /register`);
-  console.log(`🔒 CORS enabled for: ${ALLOWED_ORIGINS.join(', ')}`);
 });

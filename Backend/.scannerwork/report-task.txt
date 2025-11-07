@@ -3,5 +3,5 @@ projectKey=Michaelamm84_my-secure-portal
 serverUrl=https://sonarcloud.io
 serverVersion=8.0.0.76401
 dashboardUrl=https://sonarcloud.io/dashboard?id=Michaelamm84_my-secure-portal
-ceTaskId=AZpf8uvCEvCTUihWMTiD
-ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZpf8uvCEvCTUihWMTiD
+ceTaskId=AZpf-Zf-dPhfm6wUKEdK
+ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZpf-Zf-dPhfm6wUKEdK
