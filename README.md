@@ -1,9 +1,6 @@
 React.js Application – Beginner-Friendly Guide
 Overview
 
-This is a React.js web application. You can also access the live version over SSL here:
-
-https://icy-flower-0f023e803.2.azurestaticapps.net/
 
 The above is our secure and final production of our project, and works online. If you would like to use our project locally please follow
 the steps below: 
@@ -45,8 +42,9 @@ sonar-scanner `
   -D"sonar.organization=michaelamm84" `
   -D"sonar.projectKey=Michaelamm84_my-secure-portal" `
   -D"sonar.host.url=https://sonarcloud.io" `
-  -D"sonar.login=$env:SONAR_TOKEN" `
+  -D"sonar.token=34ff8ce12b560e74a6da366205129f992209e75a" `
   -D"sonar.cfamily.compile-commands=./bw-output/compile-commands.json"
+
 
   step 4: run command sonar-scanner to run a test 
 
@@ -67,6 +65,11 @@ npm start
 
 Keep this terminal open while the backend server is running.
 
+use login details for employy portal
+
+employee1, password: SecurePass123!, account: EMP001`);
+employee2, password: SecurePass456!, account: EMP002`);
+employee3, password: SecurePass789!, account: EMP003`);
 
 
 
@@ -78,3 +81,8 @@ http://localhost:3000
 Now you have both backend and frontend running locally.
 
 
+sonarQube: Link https://sonarcloud.io/project/overview?id=Michaelamm84_my-secure-portal
+
+Youtube: https://youtu.be/T5zI2b68sz8
+
+github: https://github.com/Michaelamm84/my-secure-portal

@@ -1,5 +1,5 @@
 
-// my-secure-portal/server.js - CUSTOMER REGISTRATION ENABLED
+// my-secure-portal/server.js 
 
 require("dotenv").config();
 const express = require("express");
@@ -184,13 +184,13 @@ function requireEmployee(req, res, next) {
 // ROUTES
 // ===============================
 
-// --- Root route ---
+
 app.get("/", (req, res) => {
   res.send("🚀 My Secure Portal API running successfully!");
 });
 
 // ===============================
-// CUSTOMER REGISTRATION (PUBLIC - Customers can self-register)
+// CUSTOMER REGISTRATION 
 // ===============================
 
 const registerValidators = [
@@ -245,7 +245,7 @@ app.post("/register", registerValidators, async (req, res) => {
 });
 
 // ===============================
-// EMPLOYEE REGISTRATION (Admin-only - for creating additional employees)
+// EMPLOYEE REGISTRATION 
 // ===============================
 
 const adminRegisterValidators = [

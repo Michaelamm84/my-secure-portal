@@ -1,7 +1,0 @@
-organization=michaelamm84
-projectKey=Michaelamm84_my-secure-portal
-serverUrl=https://sonarcloud.io
-serverVersion=8.0.0.76401
-dashboardUrl=https://sonarcloud.io/dashboard?id=Michaelamm84_my-secure-portal
-ceTaskId=AZpfUlURAFChu01ehWem
-ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZpfUlURAFChu01ehWem
