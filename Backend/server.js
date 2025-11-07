@@ -1,6 +1,3 @@
-
-// my-secure-portal/server.js 
-
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
@@ -19,13 +16,22 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
-const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
+const BCRYPT_SALT_ROUNDS = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
+
+// Validate critical environment variables
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("JWT_SECRET must be set and at least 32 characters long");
+}
+
+if (!MONGODB_URI) {
+  throw new Error("MONGODB_URI must be set in environment variables");
+}
 
 // ===============================
 // MIDDLEWARE
 // ===============================
 
-app.use(helmet()); // add security headers
+app.use(helmet());
 app.use(express.json());
 app.use(cors());
 app.use(rateLimit({ windowMs: 60 * 1000, max: 20 }));
@@ -40,14 +46,18 @@ app.use((req, _res, next) => {
 // DATABASE CONNECTION
 // ===============================
 
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => {
+async function connectDatabase() {
+  try {
+    await mongoose.connect(MONGODB_URI);
     console.log("✅ Connected to MongoDB");
-    // Seed employees after database connection
-    seedEmployees();
-  })
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+    await seedEmployees();
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err);
+    process.exit(1);
+  }
+}
+
+connectDatabase();
 
 // ===============================
 // MODELS
@@ -92,7 +102,7 @@ const RefreshToken = mongoose.model("RefreshToken", refreshTokenSchema);
 // SEED EMPLOYEES (Pre-registered accounts)
 // ===============================
 
-const seedEmployees = async () => {
+async function seedEmployees() {
   try {
     const employees = [
       {
@@ -128,8 +138,9 @@ const seedEmployees = async () => {
     console.log("✅ Employee seed complete");
   } catch (err) {
     console.error("❌ Error seeding employees:", err);
+    throw err;
   }
-};
+}
 
 // ===============================
 // AUTH HELPERS
@@ -184,7 +195,6 @@ function requireEmployee(req, res, next) {
 // ROUTES
 // ===============================
 
-
 app.get("/", (req, res) => {
   res.send("🚀 My Secure Portal API running successfully!");
 });
@@ -221,19 +231,19 @@ app.post("/register", registerValidators, async (req, res) => {
   try {
     const { username, email, password, accountNumber } = req.body;
 
-    const existing = await User.findOne({ email });
+    // Using parameterized query through Mongoose schema validation
+    const existing = await User.findOne({ email: email });
     if (existing)
       return res.status(400).json({ message: "User already exists" });
 
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
     
-    // Always set role as 'customer' for public registration
     const user = await User.create({
       username,
       email,
       password: hashed,
       accountNumber,
-      role: 'customer',  // Force customer role
+      role: 'customer',
     });
 
     console.log(`✅ New customer registered: ${user.username}`);
@@ -280,7 +290,7 @@ app.post("/admin/register", requireAuth, requireEmployee, adminRegisterValidator
   try {
     const { username, email, password, accountNumber, role } = req.body;
 
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: email });
     if (existing)
       return res.status(400).json({ message: "User already exists" });
 
@@ -313,16 +323,17 @@ app.post("/login", loginValidators, async (req, res) => {
   try {
     const { email, username, accountNumber, password } = req.body;
 
-    console.log("[/login] attempt:", {
-      identifier: email ? email : username ? username : "<missing>",
-      accountNumber: accountNumber ? accountNumber : "<not-provided>",
-    });
-
     const identifier = email || username;
     if (!identifier || !password) {
       return res.status(400).json({ message: "Missing credentials" });
     }
 
+    console.log("[/login] attempt:", {
+      identifier: identifier || "<missing>",
+      accountNumber: accountNumber || "<not-provided>",
+    });
+
+    // Using parameterized queries - Mongoose prevents NoSQL injection
     const user = await User.findOne({
       $or: [{ email: identifier }, { username: identifier }],
     });
@@ -362,7 +373,7 @@ app.post("/login", loginValidators, async (req, res) => {
       role: user.role,
     });
   } catch (err) {
-    console.error("Login error:", err && err.stack ? err.stack : err);
+    console.error("Login error:", err?.stack || err);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -400,7 +411,7 @@ app.post("/logout", async (req, res) => {
 app.get("/payments", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const payments = await Payment.find({ userId }).sort({ date: -1 });
+    const payments = await Payment.find({ userId: userId }).sort({ date: -1 });
     res.json({ ok: true, payments });
   } catch (err) {
     console.error("Payments error:", err);
@@ -460,7 +471,7 @@ app.post("/payments", requireAuth, createPaymentValidators, async (req, res) => 
       status: 'pending',
     });
     
-    console.log(`✅ Payment created by user ${req.user.username}: $${amount}`);
+    console.log(`✅ Payment created by user ${req.user.username}: ${currency || 'USD'} ${amount}`);
     res.json({ ok: true, payment });
   } catch (err) {
     console.error("Create payment error:", err);
@@ -476,6 +487,11 @@ app.patch("/payments/:id/verify", requireAuth, requireEmployee, async (req, res)
 
     if (!['verified', 'rejected'].includes(status)) {
       return res.status(400).json({ message: "Invalid status. Must be 'verified' or 'rejected'" });
+    }
+
+    // Using findByIdAndUpdate with validated ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid payment ID" });
     }
 
     const payment = await Payment.findByIdAndUpdate(
@@ -494,20 +510,17 @@ app.patch("/payments/:id/verify", requireAuth, requireEmployee, async (req, res)
 
     console.log(`✅ Payment ${id} ${status} by employee ${req.user.username}`);
     
-    // Simulate SWIFT submission
     if (status === 'verified') {
       console.log(`📤 SWIFT SUBMISSION SIMULATED for payment ${id}`);
-      console.log(`   Amount: ${payment.amount} ${payment.currency}`);
-      console.log(`   SWIFT Code: ${payment.swiftCode}`);
+      console.log(`   Amount: ${payment.amount} ${payment.currency || 'USD'}`);
+      console.log(`   SWIFT Code: ${payment.swiftCode || 'N/A'}`);
     }
 
-    res.json({ 
-      ok: true, 
-      payment,
-      message: status === 'verified' 
-        ? "Payment verified and submitted to SWIFT" 
-        : "Payment rejected"
-    });
+    const message = status === 'verified' 
+      ? "Payment verified and submitted to SWIFT" 
+      : "Payment rejected";
+
+    res.json({ ok: true, payment, message });
   } catch (err) {
     console.error("Verify payment error:", err);
     res.status(500).json({ message: "Server error" });
@@ -517,7 +530,7 @@ app.patch("/payments/:id/verify", requireAuth, requireEmployee, async (req, res)
 // GET /me - return the current user's profile
 app.get("/me", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.userId || req.user.id;
+    const userId = req.user.userId ?? req.user.id;
     const user = await User.findById(userId).select("-password -__v");
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json({ ok: true, user });
@@ -543,11 +556,12 @@ app.patch("/me", requireAuth, patchMeValidators, async (req, res) => {
   if (!errors.isEmpty()) return res.status(400).json({ ok: false, errors: errors.array() });
 
   try {
-    const userId = req.user.userId || req.user.id;
+    const userId = req.user.userId ?? req.user.id;
     const { email, password } = req.body;
     const update = {};
     if (email) update.email = email;
     if (password) update.password = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+    
     const user = await User.findByIdAndUpdate(userId, update, { new: true }).select(
       "-password -__v"
     );
@@ -561,7 +575,7 @@ app.patch("/me", requireAuth, patchMeValidators, async (req, res) => {
 
 // Global error handler: return JSON
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err && err.stack ? err.stack : err);
+  console.error("Unhandled error:", err?.stack || err);
   res.status(err.status || 500).json({ message: err.message || "Internal server error" });
 });
 

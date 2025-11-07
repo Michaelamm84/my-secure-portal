@@ -36,7 +36,7 @@ Run the following command:
 
 npm install
 
-step 3: run the following command to link to SonarQube
+step 3: run the following command to link to SonarQube and run scanner
 
 sonar-scanner `
   -D"sonar.organization=michaelamm84" `
