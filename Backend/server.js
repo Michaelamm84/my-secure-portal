@@ -1,5 +1,5 @@
 
-// my-secure-portal/server.js - FIXED VERSION
+// my-secure-portal/server.js - CUSTOMER REGISTRATION ENABLED
 
 require("dotenv").config();
 const express = require("express");
@@ -190,15 +190,9 @@ app.get("/", (req, res) => {
 });
 
 // ===============================
-// REGISTRATION ENDPOINT - REMOVED FOR PRODUCTION
+// CUSTOMER REGISTRATION (PUBLIC - Customers can self-register)
 // ===============================
-// The /register endpoint has been REMOVED to meet the requirement:
-// "Users are created as no registration process should be possible"
-// Employees are pre-registered via seedEmployees() function
-// Customers must contact the bank to create accounts
 
-// If you need registration for development/testing, uncomment below:
-/*
 const registerValidators = [
   body("username")
     .trim()
@@ -232,25 +226,28 @@ app.post("/register", registerValidators, async (req, res) => {
       return res.status(400).json({ message: "User already exists" });
 
     const hashed = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+    
+    // Always set role as 'customer' for public registration
     const user = await User.create({
       username,
       email,
       password: hashed,
       accountNumber,
-      role: 'customer',
+      role: 'customer',  // Force customer role
     });
 
-    res.json({ ok: true, userId: user._id });
+    console.log(`✅ New customer registered: ${user.username}`);
+    res.json({ ok: true, userId: user._id, message: "Registration successful" });
   } catch (err) {
     console.error("Register error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
-*/
 
 // ===============================
-// ADMIN-ONLY REGISTRATION (Optional - for creating customer accounts)
+// EMPLOYEE REGISTRATION (Admin-only - for creating additional employees)
 // ===============================
+
 const adminRegisterValidators = [
   body("username")
     .trim()
@@ -296,7 +293,7 @@ app.post("/admin/register", requireAuth, requireEmployee, adminRegisterValidator
       role: role || 'customer',
     });
 
-    console.log(`✅ Employee ${req.user.username} created new user: ${user.username}`);
+    console.log(`✅ Employee ${req.user.username} created new user: ${user.username} (${user.role})`);
     res.json({ ok: true, userId: user._id, message: "User created successfully" });
   } catch (err) {
     console.error("Admin register error:", err);
@@ -578,4 +575,5 @@ app.listen(PORT, () => {
   console.log(`   - username: employee1, password: SecurePass123!, account: EMP001`);
   console.log(`   - username: employee2, password: SecurePass456!, account: EMP002`);
   console.log(`   - username: employee3, password: SecurePass789!, account: EMP003`);
+  console.log(`✅ Customer registration: ENABLED at /register`);
 });

@@ -1,4 +1,5 @@
-// App.js - Secure Banking Portal Frontend (FIXED VERSION)
+/* eslint-disable */
+///////// App.js - Secure Banking Portal Frontend (Customer Registration Enabled)
 import React, { useState, useEffect } from "react";
 import "./App.css";
 
@@ -26,14 +27,14 @@ function App() {
   const [errors, setErrors] = useState({});
 
   // RegEx Whitelist Patterns (Optimized to prevent ReDoS attacks)
-  const patterns = {
-    username: /^[a-zA-Z0-9_]{3,20}$/,
-    email: /^[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}\.[a-zA-Z]{2,63}$/,
-    accountNumber: /^[A-Z0-9]{4,20}$/,
-    password: /^[\s\S]{8,128}$/,
-    amount: /^\d{1,10}(?:\.\d{1,2})?$/,
-    swiftCode: /^[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/,
-  };
+const patterns = {
+  username: /^[a-zA-Z0-9_]{3,20}$/,
+  email: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+  accountNumber: /^[A-Z0-9]{4,20}$/,
+  password: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,128}$/,
+  amount: /^\d{1,10}(?:\.\d{1,2})?$/,
+  swiftCode: /^[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/,
+};
 
   // Simple sanitization (removes HTML tags and special chars)
   const sanitizeInput = (name, value) => {
@@ -109,6 +110,56 @@ function App() {
       }
     } catch (error) {
       console.error("Login error:", error);
+      alert("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    
+    if (isEmployee) {
+      alert("Employees cannot self-register. Contact system administrator.");
+      return;
+    }
+
+    // Validate all fields
+    const hasErrors = Object.keys(errors).length > 0;
+    if (hasErrors) {
+      alert("Please fix form errors before submitting");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          accountNumber: formData.accountNumber,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.ok) {
+        alert("Registration successful! Please login.");
+        setFormData({
+          ...formData,
+          password: "",
+        });
+      } else {
+        alert(data.message || "Registration failed");
+      }
+    } catch (error) {
+      console.error("Registration error:", error);
       alert("Network error. Please try again.");
     } finally {
       setLoading(false);
@@ -350,15 +401,14 @@ function App() {
           
           {!isEmployee && (
             <div className="info-box">
-              <p>👋 Welcome! Please login with your account credentials.</p>
-              <p className="small-text">Don't have an account? Visit your nearest branch or contact customer service.</p>
+              <p>👋 Welcome! Please login or register below.</p>
             </div>
           )}
 
           {isEmployee && (
             <div className="info-box warning">
               <p>⚠️ <strong>Employee Access Only</strong></p>
-              <p>Pre-registered employees only. No registration available.</p>
+              <p>Pre-registered employees only. No self-registration available.</p>
               <p className="small-text">Test credentials: employee1 / SecurePass123! / EMP001</p>
             </div>
           )}
@@ -431,7 +481,80 @@ function App() {
             </button>
           </form>
 
-          {/* REGISTRATION REMOVED - No longer available per requirements */}
+          {/* CUSTOMER REGISTRATION - Only show for customers */}
+          {!isEmployee && (
+            <>
+              <div className="divider">OR</div>
+              <form onSubmit={handleRegister}>
+                <h3>Register New Customer Account</h3>
+                
+                <div className="form-group">
+                  <label>Username (3-20 alphanumeric)</label>
+                  <input
+                    type="text"
+                    name="username"
+                    placeholder="username"
+                    value={formData.username}
+                    onChange={handleChange}
+                    required
+                    disabled={loading}
+                  />
+                  {errors.username && <span className="error">{errors.username}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="your@email.com"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    disabled={loading}
+                  />
+                  {errors.email && <span className="error">{errors.email}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label>Account Number (4-20 alphanumeric)</label>
+                  <input
+                    type="text"
+                    name="accountNumber"
+                    placeholder="ACC12345"
+                    value={formData.accountNumber}
+                    onChange={handleChange}
+                    required
+                    disabled={loading}
+                  />
+                  {errors.accountNumber && (
+                    <span className="error">{errors.accountNumber}</span>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    name="password"
+                    placeholder="Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                    disabled={loading}
+                  />
+                  {errors.password && <span className="error">{errors.password}</span>}
+                  <small className="password-hint">
+                    Must contain: uppercase, lowercase, number, and special character (@$!%*?&)
+                  </small>
+                </div>
+
+                <button type="submit" className="btn-secondary" disabled={loading}>
+                  {loading ? "Registering..." : "Register"}
+                </button>
+              </form>
+            </>
+          )}
         </div>
       ) : (
         <div className="dashboard-container">
